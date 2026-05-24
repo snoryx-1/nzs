@@ -1,0 +1,14 @@
+src/
+tests/
+tsconfig.json
+.env
+.gitignore
+*.test.ts
+src/test.ts
+dist/test.js
+.nzs_output.js
+node_modules/
+dist/test.js
+dist/runtime.js
+dist/stdlib.js
+idkbot/

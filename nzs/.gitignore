@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.nzs_output.js
+.nzs_db.json
+.env
+*.js.map
+tests/out.js
+idkbot/

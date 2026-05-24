@@ -1,0 +1,13 @@
+node root {
+    token = env.TOKEN
+    prefix = "!"
+
+    on ready {
+        log "Bot is online!"
+    }
+
+    cmd ping() {
+        a.@everyone
+        reply "Pong!"
+    }
+}

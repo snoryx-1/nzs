@@ -1,0 +1,41 @@
+{
+  "name": "nizumoscript",
+  "version": "0.1.0",
+  "description": "A node-based programming language purpose-built for Discord bots",
+  "main": "dist/cli.js",
+  "bin": {
+    "nzs": "./dist/cli.js"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/cli.ts"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "programming-language",
+    "nizumoscript",
+    "discord-bot",
+    "nzs"
+  ],
+  "author": "snoryx-1",
+  "license": "MIT",
+  "homepage": "https://github.com/snoryx-1/nzs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/snoryx-1/nzs.git"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "discord.js": "^14.0.0",
+    "dotenv": "^16.0.0",
+    "ts-node": "^10.0.0",
+    "typescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}
