@@ -15,6 +15,11 @@ export enum TokenType {
   VAR = "VAR",
   TYPE_INT = "TYPE_INT", TYPE_STR = "TYPE_STR", TYPE_BOOL = "TYPE_BOOL", TYPE_FLOAT = "TYPE_FLOAT",
   MODE = "MODE",
+  // v0.1.0 — animation system
+  ANIMATION = "ANIMATION", SPRITE = "SPRITE", KEYFRAME = "KEYFRAME",
+  CANVAS = "CANVAS", FPS = "FPS", LOOP = "LOOP", PLAY = "PLAY",
+  FILL = "FILL", ROW = "ROW", COL = "COL", STAYS = "STAYS", CLEAR = "CLEAR",
+  CANVAS_SIZE = "CANVAS_SIZE",
   LBRACE = "LBRACE", RBRACE = "RBRACE", LPAREN = "LPAREN", RPAREN = "RPAREN",
   LBRACKET = "LBRACKET", RBRACKET = "RBRACKET", COMMA = "COMMA", DOT = "DOT",
   COLON = "COLON", EQUALS = "EQUALS", PLUS_EQUALS = "PLUS_EQUALS",
@@ -42,10 +47,14 @@ const KEYWORDS: Record<string, TokenType> = {
   continue: TokenType.CONTINUE, in: TokenType.IN, from: TokenType.FROM,
   to: TokenType.TO, is: TokenType.IS, and: TokenType.AND, or: TokenType.OR,
   ephemeral: TokenType.EPHEMERAL,
-  // v0.1.0
+  // v0.1.0 — beginner mode
   var: TokenType.VAR,
   int: TokenType.TYPE_INT, str: TokenType.TYPE_STR,
   bool: TokenType.TYPE_BOOL, float: TokenType.TYPE_FLOAT,
+  // v0.1.0 — animation system
+  animation: TokenType.ANIMATION, sprite: TokenType.SPRITE, keyframe: TokenType.KEYFRAME,
+  canvas: TokenType.CANVAS, fps: TokenType.FPS, loop: TokenType.LOOP, play: TokenType.PLAY,
+  fill: TokenType.FILL, row: TokenType.ROW, col: TokenType.COL, stays: TokenType.STAYS, clear: TokenType.CLEAR,
   true: TokenType.BOOLEAN, false: TokenType.BOOLEAN, null: TokenType.NULL,
 };
 
@@ -85,6 +94,21 @@ export class Lexer {
       case ">": this.addToken(this.match("=") ? TokenType.GREATER_EQUALS : TokenType.GREATER); break;
       case "<": this.addToken(this.match("=") ? TokenType.LESS_EQUALS : TokenType.LESS); break;
       case "?": this.addToken(this.match("?") ? TokenType.DOUBLE_QUESTION : TokenType.QUESTION); break;
+      case "x":
+        // handle canvas size like 6x6 — only if previous token was a number
+        if (this.tokens.length > 0 && this.tokens[this.tokens.length-1].type === TokenType.NUMBER) {
+          let num = "";
+          while (this.isDigit(this.peek())) { num += this.peek(); this.advance(); }
+          if (num.length > 0) {
+            const prev = this.tokens.pop()!;
+            this.addToken(TokenType.CANVAS_SIZE, `${prev.value}x${num}`);
+            break;
+          }
+        }
+        // fallback to identifier
+        while (this.isAlphaNumeric(this.peek())) this.advance();
+        this.addToken(KEYWORDS[this.source.substring(this.start, this.current)] ?? TokenType.IDENTIFIER);
+        break;
       case "/":
         if (this.match("/")) { while (this.peek() !== "\n" && !this.isAtEnd()) this.advance(); }
         else if (this.match("*")) { this.blockComment(); }
@@ -126,7 +150,6 @@ export class Lexer {
   private atSign(): void {
     while (this.isAlphaNumeric(this.peek())) this.advance();
     const value = this.source.substring(this.start, this.current);
-    // m.@beginner and m.@normal are MODE tokens; @slash is DECORATOR; rest are ACCESS
     if (value === "@beginner" || value === "@normal") {
       this.addToken(TokenType.MODE, value);
     } else if (value === "@slash") {

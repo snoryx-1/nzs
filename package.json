@@ -1,6 +1,6 @@
 {
   "name": "nizumoscript",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A node-based programming language purpose-built for Discord bots",
   "main": "dist/cli.js",
   "bin": {

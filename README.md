@@ -46,6 +46,180 @@ nzs run main.nzs
 
 ---
 
+## What's New in v0.1.5 — Animation System
+
+NizumoScript now has a built-in Discord animation system. Create frame-by-frame emoji grid animations that play directly in Discord messages — no GIFs, no external tools, just NZS code.
+
+### How It Works
+
+The bot sends a message with an emoji grid, then edits it frame by frame to create the illusion of movement. Each `keyframe` defines what the grid looks like at that moment.
+
+### Basic Example
+
+```nzs
+animation ScanLine {
+    canvas = 5x5
+    background = "⬛"
+    fps = 2
+    loop = true
+
+    sprite line = "🟥" fill row 0
+
+    keyframe 0 { line fill row 0 }
+    keyframe 1 { line fill row 1 }
+    keyframe 2 { line fill row 2 }
+    keyframe 3 { line fill row 3 }
+    keyframe 4 { line fill row 4 }
+}
+
+node root {
+    token = env.TOKEN
+    prefix = "!"
+
+    on ready { log "Online!" }
+
+    cmd animate() {
+        play ScanLine
+    }
+}
+```
+
+### Canvas
+
+Define the grid size:
+
+```nzs
+canvas = 6x6   // width x height
+background = "⬛"
+fps = 2
+loop = false
+```
+
+> **Note:** Keep fps at 2-3. Discord rate limits message edits to ~5 per 5 seconds. Anything above 5 fps will cause rate limit errors.
+
+### Sprites
+
+Three ways to define a sprite:
+
+**Fill entire row:**
+```nzs
+sprite topLine = "🟦" fill row 0
+```
+
+**Fill entire column:**
+```nzs
+sprite leftLine = "🟩" fill col 0
+```
+
+**Exact cell positions (full control — diagonals, shapes, anything):**
+```nzs
+sprite diagonal = [
+    "🟥" at 0,0
+    "🟥" at 1,1
+    "🟥" at 2,2
+    "🟥" at 3,3
+    "🟥" at 4,4
+]
+```
+
+### Keyframes
+
+Each keyframe defines where sprites are at that step:
+
+```nzs
+keyframe 0 {
+    topLine fill row 0
+    leftLine fill col 0
+}
+keyframe 1 {
+    topLine fill row 1
+    leftLine fill col 1
+}
+```
+
+### Clearing Sprites
+
+Use `clear` to remove a sprite from the grid in a keyframe — the background shows through:
+
+```nzs
+keyframe 3 {
+    clear topLine
+    clear bottomLine
+    leftLine fill col 2
+}
+```
+
+### Staying in Place
+
+Use `stays` to keep a sprite where it was without redefining its position:
+
+```nzs
+keyframe 2 {
+    hero stays
+    enemy fill col 3
+}
+```
+
+### Playing an Animation
+
+```nzs
+cmd battle() {
+    play BattleOpening
+}
+```
+
+### Full Battle Opening Example
+
+```nzs
+animation BattleOpening {
+    canvas = 6x6
+    background = "⬛"
+    fps = 2
+    loop = false
+
+    sprite topLine = "🟦" fill row 0
+    sprite bottomLine = "🟦" fill row 5
+    sprite leftLine = "🟩" fill col 0
+    sprite rightLine = "🟩" fill col 5
+
+    keyframe 0 {
+        topLine fill row 0
+        bottomLine fill row 5
+    }
+    keyframe 1 {
+        topLine fill row 1
+        bottomLine fill row 4
+    }
+    keyframe 2 {
+        topLine fill row 2
+        bottomLine fill row 3
+    }
+    keyframe 3 {
+        clear topLine
+        clear bottomLine
+        leftLine fill col 0
+        rightLine fill col 5
+    }
+    keyframe 4 {
+        leftLine fill col 1
+        rightLine fill col 4
+    }
+    keyframe 5 {
+        leftLine fill col 2
+        rightLine fill col 3
+    }
+}
+
+node root {
+    token = env.TOKEN
+    prefix = "!"
+    on ready { log "Bot online!" }
+    cmd battle() { play BattleOpening }
+}
+```
+
+---
+
 ## What's New in v0.1.0 — Beginner Mode
 
 ### `m.@beginner` / `m.@normal`
@@ -60,20 +234,7 @@ node root {
 }
 ```
 
-Modes cascade down — all nodes inherit root's mode. A node can override it:
-
-```nzs
-node advanced {
-    m.@normal
-    // uses normal mode even if root is @beginner
-}
-```
-
----
-
 ### `var` — Typed Variable Declarations
-
-In beginner mode, declare variables anywhere with an optional type:
 
 ```nzs
 var int hp = 100
@@ -82,13 +243,7 @@ var float damage = 4.5
 var bool alive = true
 ```
 
-Types: `int`, `str`, `float`, `bool`
-
----
-
 ### `node vars` — Auto-Persisted Per-User Data
-
-Declare a vars node to get automatic per-user database persistence — no `db.get()` or `db.set()` needed:
 
 ```nzs
 node vars {
@@ -114,22 +269,8 @@ node root {
         vars.gold += reward
         reply "Fought! HP: {vars.hp} | Gold: {vars.gold}"
     }
-
-    cmd reset() {
-        vars.hp = 100
-        vars.gold = 0
-        vars.title = "Novice"
-        reply "Stats reset!"
-    }
 }
 ```
-
-- `vars.hp` reads the value from the DB for the current user
-- `vars.hp -= 10` subtracts and saves automatically
-- `vars.hp += 25` adds and saves automatically
-- `vars.hp = 100` sets and saves automatically
-- `{vars.hp}` works in string interpolation
-- Each user has their own separate data
 
 ---
 
@@ -156,8 +297,6 @@ Everything in NizumoScript is a **node** — a self-contained, reusable block of
 
 ```nzs
 node Economy {
-    startingBalance = 100
-
     def getBalance(userId) {
         return db.get("bal_{userId}") ?? 100
     }
@@ -171,68 +310,12 @@ node Economy {
 node root {
     token = env.TOKEN
     prefix = "!"
-
     use Economy
 
     cmd balance() {
-        a.@everyone
         let bal = Economy.getBalance(ctx.user.id)
         reply "Your balance is {bal} coins."
     }
-}
-```
-
----
-
-## Multi-File Support
-
-```nzs
-// main.nzs
-import "nodes/economy.nzs"
-import "nodes/moderation.nzs"
-
-node root {
-    token = env.TOKEN
-    prefix = "!"
-
-    use Economy
-    use Moderation
-}
-```
-
----
-
-## Prefix System
-
-### Single Global Prefix
-```nzs
-node root { prefix = "!" }
-```
-
-### Multiple Global Prefixes
-```nzs
-node root {
-    prefix = ["!", "?", "."]
-
-    cmd ping() {
-        reply "You used: {ctx.prefix}"
-    }
-}
-```
-
-### Per-Command Prefix
-```nzs
-cmd pay(user, amount) {
-    prefix = "$"
-    reply "Paid {amount} to {user}!"
-}
-```
-
-### Command Aliases
-```nzs
-cmd balance() {
-    alias = ["bal", "b", "cash"]
-    reply "Balance: 100 coins"
 }
 ```
 
@@ -257,20 +340,6 @@ slash ban(user, reason) {
 }
 ```
 
-### Ephemeral Replies
-```nzs
-slash secret() {
-    reply ephemeral "Only you can see this!"
-}
-```
-
-### Ping Reply
-```nzs
-cmd hello() {
-    ctx.reply "Hey there!"
-}
-```
-
 ### Permissions
 
 | Level | Who |
@@ -282,7 +351,7 @@ cmd hello() {
 ### Cooldowns
 ```nzs
 cmd daily() {
-    cooldown: 24h   // supports s, m, h
+    cooldown: 24h
     reply "Daily reward!"
 }
 ```
@@ -307,7 +376,6 @@ on voiceLeave { }
 
 ## Embeds
 
-### Embed Nodes
 ```nzs
 node WelcomeEmbed {
     title = "Welcome!"
@@ -328,23 +396,10 @@ cmd welcome() {
 }
 ```
 
-### Inline Embeds
-```nzs
-cmd stats() {
-    reply embed {
-        title = "Your Stats"
-        description = "HP: {vars.hp}"
-        color = "#57F287"
-        timestamp = true
-    }
-}
-```
-
 ---
 
 ## Buttons
 
-### Inline Buttons
 ```nzs
 cmd ask() {
     reply "Are you sure?" with button {
@@ -354,171 +409,6 @@ cmd ask() {
             reply "Confirmed!"
         }
     }
-}
-```
-
-### Button Nodes
-```nzs
-node ConfirmButton {
-    label = "Confirm"
-    color = "success"
-    customId = "confirm_btn"
-
-    def onClick() {
-        reply "Action confirmed!"
-    }
-}
-
-cmd action() {
-    reply "Click to confirm:" with ConfirmButton
-}
-```
-
-| Color | Style |
-|---|---|
-| `primary` | Blue |
-| `secondary` | Grey |
-| `success` | Green |
-| `danger` | Red |
-
----
-
-## Select Menus
-
-```nzs
-node RoleSelect {
-    placeholder = "Choose a role"
-    customId = "role_select"
-
-    option { label = "Red" value = "red" description = "Red color role" }
-    option { label = "Blue" value = "blue" description = "Blue color role" }
-
-    def onSelect() {
-        role.give(ctx.user, selected)
-        reply "Gave you the {selected} role!"
-    }
-}
-
-cmd roles() {
-    reply "Pick a role:" with RoleSelect
-}
-```
-
----
-
-## Modals
-
-```nzs
-node FeedbackModal {
-    title = "Send Feedback"
-    customId = "feedback_modal"
-
-    input { name = "Your Feedback" value = "Tell us what you think..." }
-    input { name = "Rating" value = "1-10" }
-
-    def onSubmit() {
-        let feedback = fields.get("Your Feedback")
-        reply "Thanks! You said: {feedback}"
-    }
-}
-
-slash feedback() {
-    FeedbackModal.showModal()
-}
-```
-
----
-
-## DM
-
-```nzs
-dm ctx.user "Hello!"
-on join { dm user WelcomeEmbed }
-```
-
----
-
-## Reactions
-
-```nzs
-cmd vote() {
-    react("👍")
-    reply "Vote registered!"
-}
-```
-
----
-
-## Role Management
-
-```nzs
-cmd verify() {
-    role.give(ctx.user, "Verified")
-    reply "You are now verified!"
-}
-```
-
----
-
-## Server Info
-
-```nzs
-cmd serverinfo() {
-    reply embed {
-        title = "{ctx.server.name}"
-        description = "Members: {ctx.server.memberCount}"
-        color = "#5865F2"
-    }
-}
-```
-
----
-
-## Variables & Interpolation
-
-```nzs
-let name = ctx.user.username
-reply "Hello {name}!"
-```
-
----
-
-## Control Flow
-
-```nzs
-if score >= 90 {
-    reply "A"
-} else if score >= 80 {
-    reply "B"
-} else {
-    reply "F"
-}
-
-for fruit in fruits { log "{fruit}" }
-for i from 1 to 10 { log "{i}" }
-while n > 0 { n -= 1 }
-```
-
----
-
-## Type Checks
-
-```nzs
-if val is null { reply "Not found" }
-if val is number { reply "Score: {val}" }
-if val is !null { reply "Exists!" }
-```
-
----
-
-## Error Handling
-
-```nzs
-try {
-    let bal = Economy.getBalance(userId)
-    reply "Balance: {bal}"
-} catch(err) {
-    reply "Something went wrong: {err}"
 }
 ```
 
@@ -534,8 +424,6 @@ db.increment("coins_123", 100)
 db.decrement("lives_123", 1)
 ```
 
-Data persists in `.nzs_db.json` automatically.
-
 ---
 
 ## Built-in Functions
@@ -546,26 +434,14 @@ Data persists in `.nzs_db.json` automatically.
 | `reply ephemeral "msg"` | Ephemeral reply (slash only) |
 | `ctx.reply "msg"` | Ping reply mentioning the user |
 | `dm user "msg"` | Send a direct message |
-| `channelSend(nameOrId, "msg")` | Send to channel by name or ID |
-| `attach("file.png")` | Send a file attachment |
 | `log "msg"` | Log to console |
 | `react("emoji")` | React to the message |
 | `wait: 2s` | Pause execution |
 | `random(min, max)` | Random integer |
 | `fetch(url)` | Fetch JSON from an API |
-| `format(value)` | Format numbers with commas |
-| `number(val)` | Convert to number |
-| `string(val)` | Convert to string |
-| `boolean(val)` | Convert to boolean |
 | `role.give(user, "Role")` | Give a role |
 | `role.remove(user, "Role")` | Remove a role |
-| `db.get(key)` | Get from database |
-| `db.set(key, value)` | Save to database |
-| `db.delete(key)` | Delete from database |
-| `db.increment(key, n)` | Add to a number in the DB |
-| `db.decrement(key, n)` | Subtract from a number in the DB |
-| `db.keys()` | Get all database keys |
-| `db.values()` | Get all database values |
+| `play AnimationName` | Play an animation |
 
 ---
 
@@ -574,8 +450,6 @@ Data persists in `.nzs_db.json` automatically.
 ```
 your-bot.nzs → NizumoScript Compiler → JavaScript → Discord.js → Discord
 ```
-
-NizumoScript transpiles `.nzs` files to JavaScript. You never write or see any JS.
 
 ---
 

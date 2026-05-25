@@ -82,6 +82,8 @@ export class Parser {
   }
 
   private parseStatement(): ASTNode | null {
+    if (this.check(TokenType.ANIMATION)) return this.parseAnimation();
+    if (this.check(TokenType.PLAY)) return this.parsePlay();
     if (this.check(TokenType.IMPORT)) {
       this.advance();
       const pathTok = this.consume(TokenType.STRING, "Expected file path after import");
@@ -708,4 +710,224 @@ export class Parser {
   private previous(): Token { return this.tokens[this.current - 1]; }
   private peek(): Token { return this.tokens[this.current]; }
   private isAtEnd(): boolean { return this.peek().type === TokenType.EOF; }
+
+  // ── Animation Parsing ──────────────────────────────────────────────────────
+
+  private parseAnimation(): AnimationDeclaration {
+    this.advance(); // consume 'animation'
+    const name = this.consume(TokenType.IDENTIFIER, "Expected animation name").value;
+    this.consume(TokenType.LBRACE, "Expected '{'");
+
+    let canvasWidth = 5, canvasHeight = 5;
+    let background = "⬛";
+    let fps = 2;
+    let loop = false;
+    const sprites: SpriteDeclaration[] = [];
+    const keyframes: KeyframeDeclaration[] = [];
+
+    while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+      // canvas = 6x6
+      if (this.check(TokenType.CANVAS)) {
+        this.advance();
+        this.consume(TokenType.EQUALS, "Expected '='");
+        const size = this.consume(TokenType.CANVAS_SIZE, "Expected canvas size like 6x6").value;
+        const [w, h] = size.split("x").map(Number);
+        canvasWidth = w; canvasHeight = h;
+      }
+      // background = "⬛"
+      else if (this.check(TokenType.IDENTIFIER) && this.peek().value === "background") {
+        this.advance();
+        this.consume(TokenType.EQUALS, "Expected '='");
+        background = this.consume(TokenType.STRING, "Expected background emoji").value;
+      }
+      // fps = 3
+      else if (this.check(TokenType.FPS)) {
+        this.advance();
+        this.consume(TokenType.EQUALS, "Expected '='");
+        fps = parseFloat(this.consume(TokenType.NUMBER, "Expected fps number").value);
+      }
+      // loop = true/false
+      else if (this.check(TokenType.LOOP)) {
+        this.advance();
+        this.consume(TokenType.EQUALS, "Expected '='");
+        loop = this.consume(TokenType.BOOLEAN, "Expected true or false").value === "true";
+      }
+      // sprite name = ...
+      else if (this.check(TokenType.SPRITE)) {
+        sprites.push(this.parseSprite());
+      }
+      // keyframe 0 { ... }
+      else if (this.check(TokenType.KEYFRAME)) {
+        keyframes.push(this.parseKeyframe());
+      }
+      else { this.advance(); }
+    }
+
+    this.consume(TokenType.RBRACE, "Expected '}'");
+    return { type: "AnimationDeclaration", name, canvasWidth, canvasHeight, background, fps, loop, sprites, keyframes };
+  }
+
+  private parseSprite(): SpriteDeclaration {
+    this.advance(); // consume 'sprite'
+    const name = this.consume(TokenType.IDENTIFIER, "Expected sprite name").value;
+    this.consume(TokenType.EQUALS, "Expected '='");
+
+    const cells: SpriteCell[] = [];
+
+    if (this.check(TokenType.STRING)) {
+      // sprite line = "🟦" fill row 0  OR  sprite dot = "🟥" at 2,3
+      const emoji = this.consume(TokenType.STRING, "Expected emoji").value;
+      if (this.check(TokenType.FILL)) {
+        this.advance(); // consume 'fill'
+        if (this.check(TokenType.ROW)) {
+          this.advance();
+          const rowNum = parseFloat(this.consume(TokenType.NUMBER, "Expected row number").value);
+          cells.push({ emoji, fillRow: rowNum });
+        } else if (this.check(TokenType.COL)) {
+          this.advance();
+          const colNum = parseFloat(this.consume(TokenType.NUMBER, "Expected col number").value);
+          cells.push({ emoji, fillCol: colNum });
+        }
+      } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === "at") {
+        this.advance(); // consume 'at'
+        const x = parseFloat(this.consume(TokenType.NUMBER, "Expected x position").value);
+        this.consume(TokenType.COMMA, "Expected ','");
+        const y = parseFloat(this.consume(TokenType.NUMBER, "Expected y position").value);
+        cells.push({ emoji, row: x, col: y });
+      }
+    } else if (this.check(TokenType.LBRACKET)) {
+      // sprite name = [ "🟥" at 0,0  "🟥" at 1,1 ... ]
+      this.advance();
+      while (!this.check(TokenType.RBRACKET) && !this.isAtEnd()) {
+        const emoji = this.consume(TokenType.STRING, "Expected emoji").value;
+        if (this.check(TokenType.FILL)) {
+          this.advance();
+          if (this.check(TokenType.ROW)) {
+            this.advance();
+            const rowNum = parseFloat(this.consume(TokenType.NUMBER, "Expected row number").value);
+            cells.push({ emoji, fillRow: rowNum });
+          } else if (this.check(TokenType.COL)) {
+            this.advance();
+            const colNum = parseFloat(this.consume(TokenType.NUMBER, "Expected col number").value);
+            cells.push({ emoji, fillCol: colNum });
+          }
+        } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === "at") {
+          this.advance();
+          const x = parseFloat(this.consume(TokenType.NUMBER, "Expected x position").value);
+          this.consume(TokenType.COMMA, "Expected ','");
+          const y = parseFloat(this.consume(TokenType.NUMBER, "Expected y position").value);
+          cells.push({ emoji, row: x, col: y });
+        }
+        if (this.check(TokenType.COMMA)) this.advance();
+      }
+      this.consume(TokenType.RBRACKET, "Expected ']'");
+    }
+
+    return { type: "SpriteDeclaration", name, cells };
+  }
+
+  private parseKeyframe(): KeyframeDeclaration {
+    this.advance(); // consume 'keyframe'
+    const index = parseFloat(this.consume(TokenType.NUMBER, "Expected keyframe number").value);
+    this.consume(TokenType.LBRACE, "Expected '{'");
+
+    const actions: KeyframeSpriteAction[] = [];
+
+    while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+      // clear spriteName
+      if (this.check(TokenType.CLEAR)) {
+        this.advance();
+        const clearName = this.consume(TokenType.IDENTIFIER, "Expected sprite name after clear").value;
+        actions.push({ spriteName: clearName, clear: true });
+        continue;
+      }
+      const spriteName = this.consume(TokenType.IDENTIFIER, "Expected sprite name").value;
+
+      if (this.check(TokenType.STAYS)) {
+        this.advance();
+        actions.push({ spriteName, stays: true });
+      } else if (this.check(TokenType.STAYS)) {
+        this.advance();
+        actions.push({ spriteName, stays: true });
+      } else if (this.check(TokenType.FILL)) {
+        this.advance();
+        if (this.check(TokenType.ROW)) {
+          this.advance();
+          const rowNum = parseFloat(this.consume(TokenType.NUMBER, "Expected row number").value);
+          actions.push({ spriteName, fillRow: rowNum });
+        } else if (this.check(TokenType.COL)) {
+          this.advance();
+          const colNum = parseFloat(this.consume(TokenType.NUMBER, "Expected col number").value);
+          actions.push({ spriteName, fillCol: colNum });
+        }
+      } else if (this.check(TokenType.IDENTIFIER) && this.peek().value === "at") {
+        this.advance();
+        const x = parseFloat(this.consume(TokenType.NUMBER, "Expected x position").value);
+        this.consume(TokenType.COMMA, "Expected ','");
+        const y = parseFloat(this.consume(TokenType.NUMBER, "Expected y position").value);
+        actions.push({ spriteName, x, y });
+      } else {
+        this.advance();
+      }
+    }
+
+    this.consume(TokenType.RBRACE, "Expected '}'");
+    return { type: "KeyframeDeclaration", index, actions };
+  }
+
+  private parsePlay(): PlayStatement {
+    this.advance(); // consume 'play'
+    const animationName = this.consume(TokenType.IDENTIFIER, "Expected animation name").value;
+    return { type: "PlayStatement", animationName };
+  }
+
+}
+
+// ── Animation AST Nodes ─────────────────────────────────────────────────────
+
+export interface SpriteCell {
+  emoji: string;
+  row?: number;
+  col?: number;
+  fillRow?: number;
+  fillCol?: number;
+}
+
+export interface SpriteDeclaration extends ASTNode {
+  type: "SpriteDeclaration";
+  name: string;
+  cells: SpriteCell[];
+}
+
+export interface KeyframeSpriteAction {
+  spriteName: string;
+  fillRow?: number;
+  fillCol?: number;
+  x?: number;
+  y?: number;
+  stays?: boolean;
+  clear?: boolean;
+}
+
+export interface KeyframeDeclaration extends ASTNode {
+  type: "KeyframeDeclaration";
+  index: number;
+  actions: KeyframeSpriteAction[];
+}
+
+export interface AnimationDeclaration extends ASTNode {
+  type: "AnimationDeclaration";
+  name: string;
+  canvasWidth: number;
+  canvasHeight: number;
+  background: string;
+  fps: number;
+  loop: boolean;
+  sprites: SpriteDeclaration[];
+  keyframes: KeyframeDeclaration[];
+}
+
+export interface PlayStatement extends ASTNode {
+  type: "PlayStatement";
+  animationName: string;
 }

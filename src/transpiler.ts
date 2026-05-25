@@ -9,6 +9,7 @@ import {
   OptionDeclaration, CallExpression, MemberExpression, IndexExpression,
   BinaryExpression, NullCoalesce, Identifier, Literal, ArrayLiteral,
   MapLiteral, EmbedLiteral, ParamDeclaration,
+  AnimationDeclaration, SpriteDeclaration, KeyframeDeclaration, PlayStatement,
 } from "./parser";
 import * as fs from "fs";
 import * as path from "path";
@@ -68,6 +69,7 @@ export class Transpiler {
     }
     for (const node of program.body) {
       if (node.type === "NodeDeclaration") this.transpileNode(node as NodeDeclaration);
+      if (node.type === "AnimationDeclaration") this.transpileAnimation(node as AnimationDeclaration);
     }
     for (const node of program.body) {
       if (node.type === "RootDeclaration") this.transpileRoot(node as RootDeclaration);
@@ -236,7 +238,18 @@ export class Transpiler {
     this.emit(`function __wait(d){return new Promise(r=>setTimeout(r,__parseDuration(d)));}`);
     this.emit(`function __checkPermission(member,level){if(!member)return level==='@everyone';if(level==='@everyone')return true;if(level==='@admin')return member.permissions.has(PermissionsBitField.Flags.Administrator);if(level==='@mod')return member.permissions.has(PermissionsBitField.Flags.ModerateMembers);return false;}`);
     this.emit(`function __checkCooldown(cmd,userId,duration){const key=\`\${cmd}:\${userId}\`;const now=Date.now();const ms=__parseDuration(duration);if(__cooldowns.has(key)){const exp=__cooldowns.get(key);if(now<exp)return exp-now;}__cooldowns.set(key,now+ms);return 0;}`);
-    this.emit(`function __interpolate(str,vars){return str.replace(/\\{([^}]+)\\}/g,(_,key)=>{const keys=key.split('.');let val=vars;for(const k of keys)val=val?.[k];return val!==undefined&&val!==null?String(val):\`{\${key}}\`;});}`);
+    this.emit(`function __interpolate(str,ctx,localVars){return str.replace(/\\{([^}]+)\\}/g,(_,key)=>{`);
+    this.emit(`  // vars.field — read live from DB`);
+    this.emit(`  if(key.startsWith('vars.')&&typeof __varsGet!=='undefined'){`);
+    this.emit(`    const field=key.slice(5);`);
+    this.emit(`    const uid=ctx?.user?.id??'global';`);
+    this.emit(`    const def=(typeof vars!=='undefined'&&vars.__defaults)?vars.__defaults[field]:null;`);
+    this.emit(`    const v=__varsGet('vars',uid,field,def);`);
+    this.emit(`    return v!==null&&v!==undefined?String(v):'{'+key+'}';`);
+    this.emit(`  }`);
+    this.emit(`  const keys=key.split('.');let val=localVars;for(const k of keys)val=val?.[k];`);
+    this.emit(`  return val!==undefined&&val!==null?String(val):'{'+key+'}';`);
+    this.emit(`});}`);
     this.emit(``);
     // string methods
     this.emit(`const __str = { upper:(s)=>String(s).toUpperCase(), lower:(s)=>String(s).toLowerCase(), trim:(s)=>String(s).trim(), length:(s)=>String(s).length, includes:(s,v)=>String(s).includes(v), replace:(s,a,b)=>String(s).replace(a,b), split:(s,d)=>String(s).split(d), startsWith:(s,v)=>String(s).startsWith(v), endsWith:(s,v)=>String(s).endsWith(v), slice:(s,a,b)=>String(s).slice(a,b), indexOf:(s,v)=>String(s).indexOf(v) };`);
@@ -300,6 +313,46 @@ export class Transpiler {
     this.emit(`function __dbDecrement(key, amount=1) { const v = Number(__dbData[key]??0)-Number(amount); __dbData[key]=v; __saveDb(__dbData); return v; }`);
     this.emit(`function __dbKeys() { return Object.keys(__dbData); }`);
     this.emit(`function __dbValues() { return Object.values(__dbData); }`);
+    this.emit(``);
+    this.emit(`// ── Animation Runtime ───────────────────────────────────`);
+    this.emit(`function __buildGrid(w,h,bg){return Array.from({length:h},()=>Array(w).fill(bg));}`);
+    this.emit(`function __renderGrid(grid){return grid.map(r=>r.join('')).join('\\n');}`);
+    this.emit(`function __applyAction(grid,action,sprites,w,h){`);
+    this.emit(`  const cells=sprites[action.spriteName];`);
+    this.emit(`  if(action.clear)return; // cleared — background shows through`);
+    this.emit(`  if(!cells||action.stays)return;`);
+    this.emit(`  if(action.fillRow!==undefined){for(let c=0;c<w;c++)if(action.fillRow>=0&&action.fillRow<h)grid[action.fillRow][c]=cells[0].emoji;return;}`);
+    this.emit(`  if(action.fillCol!==undefined){for(let r=0;r<h;r++)if(action.fillCol>=0&&action.fillCol<w)grid[r][action.fillCol]=cells[0].emoji;return;}`);
+    this.emit(`  if(action.x!==undefined&&action.y!==undefined){if(action.x>=0&&action.x<h&&action.y>=0&&action.y<w)grid[action.x][action.y]=cells[0].emoji;return;}`);
+    this.emit(`  for(const cell of cells){`);
+    this.emit(`    if(cell.fillRow!==undefined){for(let c=0;c<w;c++)if(cell.fillRow>=0&&cell.fillRow<h)grid[cell.fillRow][c]=cell.emoji;}`);
+    this.emit(`    else if(cell.fillCol!==undefined){for(let r=0;r<h;r++)if(cell.fillCol>=0&&cell.fillCol<w)grid[r][cell.fillCol]=cell.emoji;}`);
+    this.emit(`    else if(cell.row!==undefined&&cell.col!==undefined){if(cell.row>=0&&cell.row<h&&cell.col>=0&&cell.col<w)grid[cell.row][cell.col]=cell.emoji;}`);
+    this.emit(`  }`);
+    this.emit(`}`);
+    this.emit(`async function __playAnimation(anim,ctx){`);
+    this.emit(`  if(!ctx)return;`);
+    this.emit(`  const delay=Math.round(1000/anim.fps);`);
+    this.emit(`  const channel=ctx.channel||ctx._interaction?.channel;`);
+    this.emit(`  if(!channel)return;`);
+    this.emit(`  const grid0=__buildGrid(anim.width,anim.height,anim.background);`);
+    this.emit(`  if(anim.keyframes[0])for(const a of anim.keyframes[0].actions)__applyAction(grid0,a,anim.sprites,anim.width,anim.height);`);
+    this.emit(`  let msg;`);
+    this.emit(`  try{`);
+    this.emit(`    if(ctx._isSlash&&ctx._interaction&&!ctx._interaction.replied){await ctx._interaction.reply({content:__renderGrid(grid0)});msg=await ctx._interaction.fetchReply();}`);
+    this.emit(`    else{msg=await channel.send(__renderGrid(grid0));}`);
+    this.emit(`  }catch(e){console.error('[NZS] Animation failed:',e.message);return;}`);
+    this.emit(`  const run=async()=>{`);
+    this.emit(`    for(let i=1;i<anim.keyframes.length;i++){`);
+    this.emit(`      await new Promise(r=>setTimeout(r,delay));`);
+    this.emit(`      const grid=__buildGrid(anim.width,anim.height,anim.background);`);
+    this.emit(`      for(const a of anim.keyframes[i].actions)__applyAction(grid,a,anim.sprites,anim.width,anim.height);`);
+    this.emit(`      try{await msg.edit(__renderGrid(grid));}catch(e){return;}`);
+    this.emit(`    }`);
+    this.emit(`    if(anim.loop)await run();`);
+    this.emit(`  };`);
+    this.emit(`  run();`);
+    this.emit(`}`);
     this.emit(``);
     // server info helper
     this.emit(`function __serverInfo(guild) {`);
@@ -808,6 +861,7 @@ export class Transpiler {
         return out;
       }
       case "CooldownStatement": case "AccessStatement": return `/* handled */`;
+      case "PlayStatement": { const p = node as PlayStatement; return `await __playAnimation(${p.animationName}, ${ctxExpr ?? "null"});`; }
       case "DmStatement": { const d = node as DmStatement; return `await __dm(${this.expr(d.target, varsName, ctxExpr)}, ${this.expr(d.message, varsName, ctxExpr)});`; }
       case "RoleStatement": { const r = node as RoleStatement; return `await ${r.action === "give" ? "__roleGive" : "__roleRemove"}(${this.expr(r.target, varsName, ctxExpr)}, ${this.expr(r.role, varsName, ctxExpr)});`; }
       case "ReplyWithButton": {
@@ -839,7 +893,7 @@ export class Transpiler {
         if (typeof l.value === "boolean") return String(l.value);
         if (typeof l.value === "string") {
           const esc = l.value.replace(/`/g, "\\`").replace(/\$/g, "\\$");
-          return `__interpolate(\`${esc}\`, ${varsName} || {})`;
+          return `__interpolate(\`${esc}\`, ${ctxExpr ?? "null"}, ${varsName} || {})`;
         }
         return String(l.value);
       }
@@ -995,6 +1049,69 @@ export class Transpiler {
       }
     }
     return `await ${this.expr(node.callee, varsName, ctxExpr)}(${args})`;
+  }
+
+  private transpileAnimation(anim: AnimationDeclaration): void {
+    this.emit(`// Animation: ${anim.name}`);
+    this.emit(`const ${anim.name} = {`);
+    this.indent();
+    this.emit(`name: '${anim.name}',`);
+    this.emit(`width: ${anim.canvasWidth},`);
+    this.emit(`height: ${anim.canvasHeight},`);
+    this.emit(`background: '${anim.background}',`);
+    this.emit(`fps: ${anim.fps},`);
+    this.emit(`loop: ${anim.loop},`);
+
+    // emit sprites as a lookup object
+    this.emit(`sprites: {`);
+    this.indent();
+    for (const sprite of anim.sprites) {
+      this.emit(`${sprite.name}: [`);
+      this.indent();
+      for (const cell of sprite.cells) {
+        const parts: string[] = [`emoji: '${cell.emoji}'`];
+        if (cell.fillRow !== undefined) parts.push(`fillRow: ${cell.fillRow}`);
+        if (cell.fillCol !== undefined) parts.push(`fillCol: ${cell.fillCol}`);
+        if (cell.row !== undefined) parts.push(`row: ${cell.row}`);
+        if (cell.col !== undefined) parts.push(`col: ${cell.col}`);
+        this.emit(`{ ${parts.join(", ")} },`);
+      }
+      this.dedent();
+      this.emit(`],`);
+    }
+    this.dedent();
+    this.emit(`},`);
+
+    // emit keyframes array
+    this.emit(`keyframes: [`);
+    this.indent();
+    for (const kf of anim.keyframes) {
+      this.emit(`{`);
+      this.indent();
+      this.emit(`index: ${kf.index},`);
+      this.emit(`actions: [`);
+      this.indent();
+      for (const action of kf.actions) {
+        const parts: string[] = [`spriteName: '${action.spriteName}'`];
+        if (action.clear) parts.push(`clear: true`);
+        if (action.stays) parts.push(`stays: true`);
+        if (action.fillRow !== undefined) parts.push(`fillRow: ${action.fillRow}`);
+        if (action.fillCol !== undefined) parts.push(`fillCol: ${action.fillCol}`);
+        if (action.x !== undefined) parts.push(`x: ${action.x}`);
+        if (action.y !== undefined) parts.push(`y: ${action.y}`);
+        this.emit(`{ ${parts.join(", ")} },`);
+      }
+      this.dedent();
+      this.emit(`],`);
+      this.dedent();
+      this.emit(`},`);
+    }
+    this.dedent();
+    this.emit(`],`);
+
+    this.dedent();
+    this.emit(`};`);
+    this.emit(``);
   }
 
   private emit(line: string): void { this.output.push("  ".repeat(this.indentLevel) + line); }
