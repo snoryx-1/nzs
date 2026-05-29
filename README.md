@@ -1,27 +1,29 @@
 # NizumoScript
 
-A node-based programming language purpose-built for Discord bots.  
-Write clean, expressive bots without touching JavaScript or Discord.js.
+A node-based programming language purpose-built for Discord bots.
+Write clean, powerful bots without touching JavaScript or Discord.js.
 
 ```nzs
+node vars {
+    var int hp = 100
+    var int gold = 0
+}
+
+node commands {
+    cmd fight() {
+        var int damage = random(10, 30)
+        vars.hp -= damage
+        vars.gold += 25
+        reply "Fought! HP: {vars.hp} | Gold: {vars.gold}"
+    }
+}
+
 node root {
     token = env.TOKEN
     prefix = "!"
-    m.@beginner
-
-    on ready {
-        log "Bot is online!"
-    }
-
-    cmd ping() {
-        a.@everyone
-        cooldown: 5s
-        reply "Pong!"
-    }
-
-    slash hello() {
-        reply "Hello from a slash command!"
-    }
+    use vars
+    use commands
+    on ready { log "Bot online!" }
 }
 ```
 
@@ -33,142 +35,106 @@ node root {
 npm install -g nizumoscript
 ```
 
----
-
 ## Quick Start
 
 ```bash
 nzs new mybot
 cd mybot
-# Add your bot token to .env
+# Add token to .env
 nzs run main.nzs
 ```
 
 ---
 
-## What's New in v0.1.5 — Animation System
+## What's New in v0.2.0 — Full Flexibility
 
-NizumoScript now has a built-in Discord animation system. Create frame-by-frame emoji grid animations that play directly in Discord messages — no GIFs, no external tools, just NZS code.
+### Any Structure You Want
 
-### How It Works
-
-The bot sends a message with an emoji grid, then edits it frame by frame to create the illusion of movement. Each `keyframe` defines what the grid looks like at that moment.
-
-### Basic Example
+NZS no longer forces a rigid layout. Commands, events, embeds — put them anywhere.
 
 ```nzs
-animation ScanLine {
-    canvas = 5x5
-    background = "⬛"
-    fps = 2
-    loop = true
+// Flat style
+node PlayerEmbed { title = "Player Stats" color = "#3498db" }
+node root { cmd stats() { reply PlayerEmbed } }
 
-    sprite line = "🟥" fill row 0
-
-    keyframe 0 { line fill row 0 }
-    keyframe 1 { line fill row 1 }
-    keyframe 2 { line fill row 2 }
-    keyframe 3 { line fill row 3 }
-    keyframe 4 { line fill row 4 }
+// Grouped style
+node commands {
+    cmd stats() { ... }
+    cmd fight() { ... }
 }
+node root { use commands }
 
+// Fully nested
 node root {
-    token = env.TOKEN
-    prefix = "!"
+    node vars { var int hp = 100 }
+    node commands { cmd fight() { ... } }
+}
 
-    on ready { log "Online!" }
-
-    cmd animate() {
-        play ScanLine
-    }
+// Any absurd structure — it all works
+node game {
+    node ui { node embeds { node StatsEmbed { title = "Stats" } } }
+    node logic { cmd fight() { ... } }
 }
 ```
 
-### Canvas
-
-Define the grid size:
+### Pattern Matching
 
 ```nzs
-canvas = 6x6   // width x height
-background = "⬛"
-fps = 2
-loop = false
-```
-
-> **Note:** Keep fps at 2-3. Discord rate limits message edits to ~5 per 5 seconds. Anything above 5 fps will cause rate limit errors.
-
-### Sprites
-
-Three ways to define a sprite:
-
-**Fill entire row:**
-```nzs
-sprite topLine = "🟦" fill row 0
-```
-
-**Fill entire column:**
-```nzs
-sprite leftLine = "🟩" fill col 0
-```
-
-**Exact cell positions (full control — diagonals, shapes, anything):**
-```nzs
-sprite diagonal = [
-    "🟥" at 0,0
-    "🟥" at 1,1
-    "🟥" at 2,2
-    "🟥" at 3,3
-    "🟥" at 4,4
-]
-```
-
-### Keyframes
-
-Each keyframe defines where sprites are at that step:
-
-```nzs
-keyframe 0 {
-    topLine fill row 0
-    leftLine fill col 0
-}
-keyframe 1 {
-    topLine fill row 1
-    leftLine fill col 1
+match vars.class {
+    when "Warrior" { reply "You are strong!" }
+    when "Mage" { reply "You cast spells!" }
+    default { reply "Unknown class" }
 }
 ```
 
-### Clearing Sprites
-
-Use `clear` to remove a sprite from the grid in a keyframe — the background shows through:
+### Ternary Expressions
 
 ```nzs
-keyframe 3 {
-    clear topLine
-    clear bottomLine
-    leftLine fill col 2
+let status = vars.hp > 50 ? "Healthy" : "Low HP"
+reply "Status: {status}"
+```
+
+### Scheduled Tasks
+
+```nzs
+every 24h {
+    log "Daily reset running..."
+    // reset all player data
 }
 ```
 
-### Staying in Place
-
-Use `stays` to keep a sprite where it was without redefining its position:
+### Custom Events
 
 ```nzs
-keyframe 2 {
-    hero stays
-    enemy fill col 3
+emit playerDied(ctx.user.id)
+
+on playerDied {
+    log "Player died!"
 }
 ```
 
-### Playing an Animation
+### Arrays as First Class
 
 ```nzs
-cmd battle() {
-    play BattleOpening
-}
+let items = ["sword", "shield", "potion"]
+items.push("bow")
+let count = items.length()
+let hasPotion = items.includes("potion")
+reply "Items: {items.join(', ')}"
 ```
 
-### Full Battle Opening Example
+### New Operators
+
+```nzs
+vars.gold *= 2
+vars.hp /= 2
+```
+
+---
+
+## v0.1.5 — Animation System
+
+Create frame-by-frame emoji grid animations:
 
 ```nzs
 animation BattleOpening {
@@ -178,96 +144,47 @@ animation BattleOpening {
     loop = false
 
     sprite topLine = "🟦" fill row 0
-    sprite bottomLine = "🟦" fill row 5
     sprite leftLine = "🟩" fill col 0
-    sprite rightLine = "🟩" fill col 5
 
-    keyframe 0 {
-        topLine fill row 0
-        bottomLine fill row 5
-    }
-    keyframe 1 {
-        topLine fill row 1
-        bottomLine fill row 4
-    }
+    keyframe 0 { topLine fill row 0 }
+    keyframe 1 { topLine fill row 1 }
     keyframe 2 {
-        topLine fill row 2
-        bottomLine fill row 3
-    }
-    keyframe 3 {
         clear topLine
-        clear bottomLine
         leftLine fill col 0
-        rightLine fill col 5
-    }
-    keyframe 4 {
-        leftLine fill col 1
-        rightLine fill col 4
-    }
-    keyframe 5 {
-        leftLine fill col 2
-        rightLine fill col 3
     }
 }
 
-node root {
-    token = env.TOKEN
-    prefix = "!"
-    on ready { log "Bot online!" }
-    cmd battle() { play BattleOpening }
-}
+cmd battle() { play BattleOpening }
 ```
+
+**Sprite types:** `fill row N`, `fill col N`, or `["emoji" at R,C ...]` for exact cells
+**Keywords:** `clear spriteName`, `stays spriteName`, `loop = true/false`
+**Max safe fps:** 2-3 (Discord rate limits)
 
 ---
 
-## What's New in v0.1.0 — Beginner Mode
-
-### `m.@beginner` / `m.@normal`
-
-Declare a mode on `node root` (or any node) to enable simplified syntax:
-
-```nzs
-node root {
-    token = env.TOKEN
-    prefix = "!"
-    m.@beginner
-}
-```
-
-### `var` — Typed Variable Declarations
-
-```nzs
-var int hp = 100
-var str name = "Hero"
-var float damage = 4.5
-var bool alive = true
-```
-
-### `node vars` — Auto-Persisted Per-User Data
+## v0.1.0 — Beginner Mode
 
 ```nzs
 node vars {
     var int hp = 100
-    var int gold = 0
-    var str title = "Novice"
+    var str name = "Hero"
+    var float damage = 4.5
+    var bool alive = true
 }
 
 node root {
-    token = env.TOKEN
-    prefix = "!"
     m.@beginner
     use vars
 
     cmd stats() {
-        reply "HP: {vars.hp} | Gold: {vars.gold} | Title: {vars.title}"
+        reply "HP: {vars.hp} | Name: {vars.name}"
     }
 
     cmd fight() {
-        var int damage = 10
-        var int reward = 25
-        vars.hp -= damage
-        vars.gold += reward
-        reply "Fought! HP: {vars.hp} | Gold: {vars.gold}"
+        vars.hp -= 10
+        vars.gold += 25
+        reply "HP: {vars.hp}"
     }
 }
 ```
@@ -278,96 +195,64 @@ node root {
 
 | Command | Description |
 |---|---|
-| `nzs new <name>` | Create a new project in a new folder |
-| `nzs init` | Initialize a project in current folder |
+| `nzs new <name>` | Create new project |
+| `nzs init` | Init in current folder |
 | `nzs run <file>` | Run your bot |
-| `nzs build <file>` | Transpile to JavaScript |
-| `nzs check <file>` | Check for errors without running |
-| `nzs watch <file>` | Run with hot reload on save |
-| `nzs add <package>` | Install an npm package |
-| `nzs remove <package>` | Remove an npm package |
+| `nzs build <file>` | Compile to JS |
+| `nzs check <file>` | Check for errors |
+| `nzs watch <file>` | Hot reload on save |
+| `nzs add <pkg>` | Install npm package |
 | `nzs update` | Update NizumoScript |
-| `nzs version` | Show version |
-
----
-
-## The Node System
-
-Everything in NizumoScript is a **node** — a self-contained, reusable block of logic or UI.
-
-```nzs
-node Economy {
-    def getBalance(userId) {
-        return db.get("bal_{userId}") ?? 100
-    }
-
-    def addBalance(userId, amount) {
-        let current = Economy.getBalance(userId)
-        db.set("bal_{userId}", current + amount)
-    }
-}
-
-node root {
-    token = env.TOKEN
-    prefix = "!"
-    use Economy
-
-    cmd balance() {
-        let bal = Economy.getBalance(ctx.user.id)
-        reply "Your balance is {bal} coins."
-    }
-}
-```
 
 ---
 
 ## Commands
 
-### Prefix Commands
 ```nzs
+// Prefix command
 cmd ban(user, reason) {
     a.@mod
     cooldown: 10s
-    reply "Banned {user} for {reason}"
+    reply "Banned {user}"
+}
+
+// Slash command
+slash ping() {
+    reply ephemeral "Pong!"
+}
+
+// Aliases
+cmd balance() {
+    alias = ["bal", "b"]
+    reply "Balance: {vars.gold}"
+}
+
+// Custom prefix
+cmd shop() {
+    prefix = "$"
+    reply "Welcome to the shop!"
 }
 ```
 
-### Slash Commands
-```nzs
-slash ban(user, reason) {
-    a.@mod
-    reply "Banned {user} for {reason}"
-}
-```
-
-### Permissions
+## Permissions
 
 | Level | Who |
 |---|---|
 | `a.@everyone` | All users |
-| `a.@mod` | Members with Moderate Members permission |
-| `a.@admin` | Administrators only |
-
-### Cooldowns
-```nzs
-cmd daily() {
-    cooldown: 24h
-    reply "Daily reward!"
-}
-```
+| `a.@mod` | Moderators |
+| `a.@admin` | Administrators |
 
 ---
 
 ## Events
 
 ```nzs
-on ready { log "Bot online!" }
+on ready { log "Online!" }
 on message { }
 on join { dm user "Welcome!" }
 on leave { }
 on reaction { }
 on ban { }
-on unban { }
 on voiceJoin { }
 on voiceLeave { }
 ```
@@ -377,37 +262,23 @@ on voiceLeave { }
 ## Embeds
 
 ```nzs
-node WelcomeEmbed {
-    title = "Welcome!"
-    description = "Glad you joined"
-    color = "#5865F2"
-    footer = "My Bot"
+node StatsEmbed {
+    title = "Player Stats"
+    color = "#3498db"
+    footer = "Use .help for commands"
     timestamp = true
-
-    field {
-        name = "Rules"
-        value = "Be respectful"
-        inline = true
-    }
+    field { name = "HP" value = "100" inline = true }
+    field { name = "Gold" value = "0" inline = true }
 }
 
-cmd welcome() {
-    reply WelcomeEmbed
-}
-```
+cmd stats() { reply StatsEmbed }
 
----
-
-## Buttons
-
-```nzs
-cmd ask() {
-    reply "Are you sure?" with button {
-        label = "Confirm"
-        color = "success"
-        onClick {
-            reply "Confirmed!"
-        }
+// Inline embed
+cmd info() {
+    reply embed {
+        title = "Info"
+        description = "Hello {ctx.user.username}!"
+        color = "#2ecc71"
     }
 }
 ```
@@ -420,8 +291,10 @@ cmd ask() {
 db.set("key", value)
 let val = db.get("key")
 db.delete("key")
-db.increment("coins_123", 100)
-db.decrement("lives_123", 1)
+db.increment("coins", 100)
+db.decrement("lives", 1)
+db.push("items", "sword")
+db.pull("items", "sword")
 ```
 
 ---
@@ -430,18 +303,20 @@ db.decrement("lives_123", 1)
 
 | Function | Description |
 |---|---|
-| `reply "msg"` | Reply in current channel |
-| `reply ephemeral "msg"` | Ephemeral reply (slash only) |
-| `ctx.reply "msg"` | Ping reply mentioning the user |
-| `dm user "msg"` | Send a direct message |
-| `log "msg"` | Log to console |
-| `react("emoji")` | React to the message |
-| `wait: 2s` | Pause execution |
+| `reply "msg"` | Send a message |
+| `reply ephemeral "msg"` | Ephemeral (slash only) |
+| `ctx.reply "msg"` | Ping reply |
+| `dm user "msg"` | Direct message |
+| `log "msg"` | Console log |
 | `random(min, max)` | Random integer |
-| `fetch(url)` | Fetch JSON from an API |
-| `role.give(user, "Role")` | Give a role |
-| `role.remove(user, "Role")` | Remove a role |
-| `play AnimationName` | Play an animation |
+| `fetch(url)` | Fetch JSON from API |
+| `format(value)` | Format numbers |
+| `wait: 2s` | Pause execution |
+| `react("emoji")` | React to message |
+| `role.give(user, "Role")` | Give role |
+| `role.remove(user, "Role")` | Remove role |
+| `play AnimationName` | Play animation |
+| `emit eventName()` | Emit custom event |
 
 ---
 
