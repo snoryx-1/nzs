@@ -148,7 +148,7 @@ export class Transpiler {
   private transpileImport(imp: ImportStatement): void {
     const dir = this.currentFile ? path.dirname(this.currentFile) : process.cwd();
     const absPath = path.resolve(dir, imp.path);
-    if (!fs.existsSync(absPath)) throw new Error(`Import not found: '${imp.path}'`);
+    if (!fs.existsSync(absPath)) throw new Error(`[Line ${imp.line}] Import not found: '${imp.path}' — check the file path`);
     const source = fs.readFileSync(absPath, "utf-8");
     const lexer = new Lexer(source);
     const tokens = lexer.tokenize();
@@ -171,9 +171,11 @@ export class Transpiler {
     this.emit(`function __dbDecrement(k,a=1){const v=Number(__dbData[k]??0)-Number(a);__dbData[k]=v;__saveDb(__dbData);return v;}`);
     this.emit(``);
     // vars helpers
-    this.emit(`function __varsGet(nodeKey,userId,field,defaultVal){const key=nodeKey+':'+userId;const obj=__dbData[key]||{};return obj[field]!==undefined?obj[field]:defaultVal;}`);
-    this.emit(`function __varsSet(nodeKey,userId,field,value){const key=nodeKey+':'+userId;if(!__dbData[key])__dbData[key]={};__dbData[key][field]=value;__saveDb(__dbData);return value;}`);
+    this.emit(`function __varsGet(nodeKey,userId,field,defaultVal){const key=nodeKey+':'+userId;const obj=__dbData[key]||{};const val=obj[field];if(val===undefined)return defaultVal;try{if(typeof val==='string'&&(val.startsWith('[')||val.startsWith('{'))){return JSON.parse(val);}}catch(e){}return val;}`);
+    this.emit(`function __varsSet(nodeKey,userId,field,value){const key=nodeKey+':'+userId;if(!__dbData[key])__dbData[key]={};const stored=typeof value==='object'&&value!==null?JSON.stringify(value):value;__dbData[key][field]=stored;__saveDb(__dbData);return value;}`);
     this.emit(`function __varsMod(nodeKey,userId,field,delta,defaultVal){const current=__varsGet(nodeKey,userId,field,defaultVal);return __varsSet(nodeKey,userId,field,current+delta);}`);
+    this.emit(`function __varsPush(nodeKey,userId,field,value){const arr=__varsGet(nodeKey,userId,field,[])||[];arr.push(value);return __varsSet(nodeKey,userId,field,arr);}`);
+    this.emit(`function __varsPull(nodeKey,userId,field,value){const arr=__varsGet(nodeKey,userId,field,[])||[];const filtered=arr.filter(x=>x!==value);return __varsSet(nodeKey,userId,field,filtered);}`);
     this.emit(``);
     // reply helpers
     this.emit(`async function __reply(ctx,message,components){if(!ctx)return;const isEmbed=typeof message==='object'&&message?.data;const payload=isEmbed?{embeds:[message],components:components||[]}:{content:String(message),components:components||[]};if(ctx._isSlash&&ctx._interaction){if(!ctx._interaction.replied&&!ctx._interaction.deferred)await ctx._interaction.reply(payload);else await ctx._interaction.followUp(payload);}else if(ctx.channel){await ctx.channel.send(payload);}}`);
@@ -215,6 +217,41 @@ export class Transpiler {
     this.emit(`function __buildGrid(w,h,bg){return Array.from({length:h},()=>Array(w).fill(bg));}`);
     this.emit(`function __renderGrid(grid){return grid.map(r=>r.join('')).join('\\n');}`);
     this.emit(`function __applyAction(grid,action,sprites,w,h){const cells=sprites[action.spriteName];if(!cells||action.stays)return;if(action.clear)return;if(action.fillRow!==undefined){for(let c=0;c<w;c++)if(action.fillRow>=0&&action.fillRow<h)grid[action.fillRow][c]=cells[0].emoji;return;}if(action.fillCol!==undefined){for(let r=0;r<h;r++)if(action.fillCol>=0&&action.fillCol<w)grid[r][action.fillCol]=cells[0].emoji;return;}if(action.x!==undefined&&action.y!==undefined){if(action.x>=0&&action.x<h&&action.y>=0&&action.y<w)grid[action.x][action.y]=cells[0].emoji;return;}for(const cell of cells){if(cell.fillRow!==undefined){for(let c=0;c<w;c++)if(cell.fillRow>=0&&cell.fillRow<h)grid[cell.fillRow][c]=cell.emoji;}else if(cell.fillCol!==undefined){for(let r=0;r<h;r++)if(cell.fillCol>=0&&cell.fillCol<w)grid[r][cell.fillCol]=cell.emoji;}else if(cell.row!==undefined&&cell.col!==undefined){if(cell.row>=0&&cell.row<h&&cell.col>=0&&cell.col<w)grid[cell.row][cell.col]=cell.emoji;}}}`);
+    // pagination runtime
+    this.emit(`async function __paginate(ctx, pages, timeoutSecs=60) {`);
+    this.emit(`  if(!ctx||!pages||pages.length===0)return;`);
+    this.emit(`  let page=0;`);
+    this.emit(`  const total=pages.length;`);
+    this.emit(`  function buildRow(p,t){`);
+    this.emit(`    const prev=new ButtonBuilder().setCustomId('__pg_prev').setLabel('◀').setStyle(ButtonStyle.Secondary).setDisabled(p===0);`);
+    this.emit(`    const next=new ButtonBuilder().setCustomId('__pg_next').setLabel('▶').setStyle(ButtonStyle.Secondary).setDisabled(p===t-1);`);
+    this.emit(`    const info=new ButtonBuilder().setCustomId('__pg_info').setLabel(\`\${p+1}/\${t}\`).setStyle(ButtonStyle.Secondary).setDisabled(true);`);
+    this.emit(`    return new ActionRowBuilder().addComponents(prev,info,next);`);
+    this.emit(`  }`);
+    this.emit(`  const embed=pages[0];`);
+    this.emit(`  const isEmbed=typeof embed==='object'&&embed?.data;`);
+    this.emit(`  const payload=isEmbed?{embeds:[embed],components:[buildRow(0,total)]}:{content:String(embed),components:[buildRow(0,total)]};`);
+    this.emit(`  let msg;`);
+    this.emit(`  try{`);
+    this.emit(`    if(ctx._isSlash&&ctx._interaction&&!ctx._interaction.replied){await ctx._interaction.reply(payload);msg=await ctx._interaction.fetchReply();}`);
+    this.emit(`    else if(ctx.channel){msg=await ctx.channel.send(payload);}`);
+    this.emit(`  }catch(e){console.error('[NZS] paginate failed:',e.message);return;}`);
+    this.emit(`  if(!msg)return;`);
+    this.emit(`  const collector=msg.createMessageComponentCollector({time:timeoutSecs*1000});`);
+    this.emit(`  collector.on('collect',async i=>{`);
+    this.emit(`    if(i.customId==='__pg_prev')page=Math.max(0,page-1);`);
+    this.emit(`    else if(i.customId==='__pg_next')page=Math.min(total-1,page+1);`);
+    this.emit(`    else{await i.deferUpdate();return;}`);
+    this.emit(`    const e=pages[page];`);
+    this.emit(`    const isE=typeof e==='object'&&e?.data;`);
+    this.emit(`    const p2=isE?{embeds:[e],components:[buildRow(page,total)]}:{content:String(e),components:[buildRow(page,total)]};`);
+    this.emit(`    await i.update(p2);`);
+    this.emit(`  });`);
+    this.emit(`  collector.on('end',async()=>{`);
+    this.emit(`    try{await msg.edit({components:[]});}catch(e){}`);
+    this.emit(`  });`);
+    this.emit(`}`);
+    this.emit(``);
     this.emit(`async function __playAnimation(anim,ctx){if(!ctx)return;const delay=Math.round(1000/anim.fps);const channel=ctx.channel||ctx._interaction?.channel;if(!channel)return;const grid0=__buildGrid(anim.width,anim.height,anim.background);if(anim.keyframes[0])for(const a of anim.keyframes[0].actions)__applyAction(grid0,a,anim.sprites,anim.width,anim.height);let msg;try{if(ctx._isSlash&&ctx._interaction&&!ctx._interaction.replied){await ctx._interaction.reply({content:__renderGrid(grid0)});msg=await ctx._interaction.fetchReply();}else{msg=await channel.send(__renderGrid(grid0));}}catch(e){console.error('[NZS] Animation failed:',e.message);return;}const run=async()=>{for(let i=1;i<anim.keyframes.length;i++){await new Promise(r=>setTimeout(r,delay));const grid=__buildGrid(anim.width,anim.height,anim.background);for(const a of anim.keyframes[i].actions)__applyAction(grid,a,anim.sprites,anim.width,anim.height);try{await msg.edit(__renderGrid(grid));}catch(e){return;}}if(anim.loop)await run();};run();}`);
     this.emit(``);
   }
@@ -665,7 +702,12 @@ export class Transpiler {
       case "VarStatement": {
         const v = node as VarStatement;
         const val = this.expr(v.value, varsName, ctxExpr);
-        return `let ${v.name} = ${val}; ${varsName}['${v.name}'] = ${v.name};`;
+        let coerce = val;
+        if (v.varType === "int") coerce = `Math.floor(Number(${val})||0)`;
+        else if (v.varType === "float") coerce = `(Number(${val})||0)`;
+        else if (v.varType === "str") coerce = `String(${val})`;
+        else if (v.varType === "bool") coerce = `Boolean(${val})`;
+        return `let ${v.name} = ${coerce}; ${varsName}['${v.name}'] = ${v.name};`;
       }
 
       case "LetStatement": {
@@ -782,6 +824,20 @@ export class Transpiler {
       case "CooldownStatement": case "AccessStatement": return `/* handled */`;
       case "UseStatement": return `/* use ${(node as UseStatement).name} */`;
       case "PlayStatement": return `await __playAnimation(${(node as PlayStatement).animationName},${ctxExpr});`;
+
+      case "TemplateReply": {
+        const tr = node as TemplateReply;
+        const overrides = tr.overrides.map(o => `${o.key}:${this.expr(o.value, varsName, ctxExpr)}`).join(",");
+        const fields = tr.fields.map(f => `{name:${this.expr(f.name, varsName, ctxExpr)},value:${this.expr(f.value, varsName, ctxExpr)},inline:${f.inline}}`).join(",");
+        return `await __reply(${ctxExpr},__buildEmbed({...${tr.templateName}.__state,${overrides}},[...${tr.templateName}.__fields,${fields}]));`;
+      }
+
+      case "PaginateStatement": {
+        const ps = node as PaginateStatement;
+        const pagesArr = ps.pages.map(p => this.expr(p, varsName, ctxExpr)).join(",");
+        const timeout = ps.timeout ?? 60;
+        return `await __paginate(${ctxExpr},[${pagesArr}],${timeout});`;
+      }
 
       case "DmStatement": {
         const d = node as DmStatement;

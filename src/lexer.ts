@@ -34,6 +34,7 @@ export enum TokenType {
   CANVAS_SIZE = "CANVAS_SIZE",
   // v0.2.0 new keywords
   EVERY = "EVERY",        // scheduled tasks: every 1h { }
+  PAGINATE = "PAGINATE",   // pagination system
   EMIT = "EMIT",          // emit event
   TYPE = "TYPE",          // type declarations
   EXTENDS_KW = "EXTENDS_KW",
@@ -77,7 +78,7 @@ const KEYWORDS: Record<string, TokenType> = {
   canvas: TokenType.CANVAS, fps: TokenType.FPS, loop: TokenType.LOOP, play: TokenType.PLAY,
   fill: TokenType.FILL, row: TokenType.ROW, col: TokenType.COL,
   stays: TokenType.STAYS, clear: TokenType.CLEAR,
-  every: TokenType.EVERY, emit: TokenType.EMIT,
+  every: TokenType.EVERY, emit: TokenType.EMIT, paginate: TokenType.PAGINATE,
   match: TokenType.MATCH, when: TokenType.WHEN,
   true: TokenType.BOOLEAN, false: TokenType.BOOLEAN, null: TokenType.NULL,
 };

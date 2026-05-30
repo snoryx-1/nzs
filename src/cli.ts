@@ -9,7 +9,7 @@ import { NZSError, formatError, formatWarning, formatInfo } from "./errors";
 import { Parser } from "./parser";
 import { Transpiler } from "./transpiler";
 
-const VERSION = "v0.1.0";
+const VERSION = "v0.2.0";
 
 function compile(filePath: string): string {
   const absPath = path.resolve(filePath);
@@ -39,7 +39,7 @@ function compile(filePath: string): string {
 // v0.1.0 — translate cryptic parser errors into plain English
 function makeBeginnerFriendly(message: string, source: string): string {
   if (message.includes("Expected '='") && message.includes("var")) {
-    return `Missing '=' in variable declaration.\n  Tip: use  var int hp = 100`;
+    return `Missing '=' in variable declaration.\n  Tip: var int hp = 100`;
   }
   if (message.includes("Expected variable name after var")) {
     return `You wrote 'var' but forgot the variable name.\n  Tip: var int hp = 100`;
@@ -59,8 +59,23 @@ function makeBeginnerFriendly(message: string, source: string): string {
   if (message.includes("Expected command name")) {
     return `Missing name after 'cmd'.\n  Tip:  cmd fight() { ... }`;
   }
+  if (message.includes("Expected '('")) {
+    return `Missing opening parenthesis '('.\n  Tip:  cmd fight() { ... }  or  def myFunc() { ... }`;
+  }
+  if (message.includes("Expected ':'")) {
+    return `Missing colon ':'.\n  Tip: check your cooldown or type annotation syntax`;
+  }
+  if (message.includes("Unexpected token 'EOF'")) {
+    return `Unexpected end of file — you probably have an unclosed block.\n  Tip: count your { } braces`;
+  }
+  if (message.includes("Import not found")) {
+    return message;
+  }
   if (message.includes("File not found")) {
-    return message; // already clear
+    return message;
+  }
+  if (message.includes("Cannot find") || message.includes("is not defined")) {
+    return `${message}\n  Tip: make sure you used 'use NodeName' before referencing it`;
   }
   return message;
 }

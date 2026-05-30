@@ -90,6 +90,8 @@ export interface CooldownStatement extends ASTNode { type: "CooldownStatement"; 
 export interface PlayStatement extends ASTNode { type: "PlayStatement"; animationName: string; }
 export interface ReplyWithButton extends ASTNode { type: "ReplyWithButton"; message: ASTNode; button: ButtonDeclaration | string; }
 export interface EmitStatement extends ASTNode { type: "EmitStatement"; event: string; args: ASTNode[]; }
+export interface TemplateReply extends ASTNode { type: "TemplateReply"; templateName: string; overrides: { key: string; value: ASTNode }[]; fields: FieldDeclaration[]; }
+export interface PaginateStatement extends ASTNode { type: "PaginateStatement"; pages: ASTNode[]; timeout?: number; }
 
 // ── Expressions ───────────────────────────────────────────────────────────
 export interface CallExpression extends ASTNode { type: "CallExpression"; callee: ASTNode; args: ASTNode[]; }
@@ -154,6 +156,7 @@ export class Parser {
     if (this.check(TokenType.ANIMATION)) return this.parseAnimation();
     if (this.check(TokenType.PLAY)) return this.parsePlay();
     if (this.check(TokenType.EVERY)) return this.parseScheduled();
+    if (this.check(TokenType.PAGINATE)) return this.parsePaginate();
 
     // node declarations
     if (this.check(TokenType.PRIVATE) && this.checkNext(TokenType.NODE)) { this.advance(); return this.parseNode(true); }
@@ -559,7 +562,7 @@ export class Parser {
       this.advance();
       return { type: "EphemeralReply", message: this.parseExpression() } as EphemeralReply;
     }
-    // embed { }
+    // embed { } inline
     if (this.check(TokenType.IDENTIFIER) && this.peek().value === "embed" && this.checkNextType(TokenType.LBRACE)) {
       this.advance();
       this.consume(TokenType.LBRACE, "Expected '{'");
@@ -578,11 +581,71 @@ export class Parser {
       if (this.check(TokenType.WITH)) return this.parseWith(embed);
       return { type: "CallExpression", callee: { type: "Identifier", name: "reply" } as Identifier, args: [embed] } as CallExpression;
     }
+    // reply NodeName { overrides } — embed template
+    if (this.check(TokenType.IDENTIFIER) && this.checkNextType(TokenType.LBRACE)) {
+      const name = this.peek().value;
+      // peek ahead to check it looks like an embed override block (key = value pairs)
+      const savedPos = this.current;
+      this.advance(); // consume identifier
+      this.advance(); // consume {
+      // check first token: if it's identifier followed by = it's a template override
+      if (!this.isAtEnd() && (this.check(TokenType.IDENTIFIER) || this.check(TokenType.FIELD) || this.check(TokenType.RBRACE))) {
+        const pairs: { key: string; value: ASTNode }[] = [];
+        const fields: FieldDeclaration[] = [];
+        while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+          if (this.check(TokenType.FIELD)) { this.advance(); fields.push(this.parseInlineField()); }
+          else {
+            const key = this.advance().value;
+            if (!this.check(TokenType.EQUALS)) { this.current = savedPos; break; }
+            this.advance(); // =
+            pairs.push({ key, value: this.parseExpression() });
+          }
+        }
+        if (this.check(TokenType.RBRACE)) {
+          this.advance(); // consume }
+          return { type: "TemplateReply", templateName: name, overrides: pairs, fields } as TemplateReply;
+        }
+      }
+      this.current = savedPos;
+    }
     const arg = this.check(TokenType.LPAREN)
       ? (this.advance(), (() => { const e = this.parseExpression(); this.consume(TokenType.RPAREN, "Expected ')'"); return e; })())
       : this.parseExpression();
     if (this.check(TokenType.WITH)) return this.parseWith(arg);
     return { type: "CallExpression", callee: { type: "Identifier", name: "reply" } as Identifier, args: [arg] } as CallExpression;
+  }
+
+  private parsePaginate(): PaginateStatement {
+    const line = this.peek().line;
+    this.advance(); // consume 'paginate'
+    let timeout = 60;
+    if (this.check(TokenType.IDENTIFIER) && this.peek().value === "timeout") {
+      this.advance(); this.consume(TokenType.COLON, "Expected ':'");
+      timeout = parseFloat(this.consume(TokenType.NUMBER, "Expected timeout seconds").value);
+    }
+    this.consume(TokenType.LBRACE, "Expected '{'");
+    const pages: ASTNode[] = [];
+    while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+      // each page = embed literal or node name
+      if (this.check(TokenType.IDENTIFIER) && this.peek().value === "page") {
+        this.advance();
+        this.consume(TokenType.LBRACE, "Expected '{'");
+        const pairs: { key: string; value: ASTNode }[] = [];
+        const fields: FieldDeclaration[] = [];
+        while (!this.check(TokenType.RBRACE) && !this.isAtEnd()) {
+          if (this.check(TokenType.FIELD)) { this.advance(); fields.push(this.parseInlineField()); }
+          else {
+            const key = this.consume(TokenType.IDENTIFIER, "Expected key").value;
+            this.consume(TokenType.EQUALS, "Expected '='");
+            pairs.push({ key, value: this.parseExpression() });
+          }
+        }
+        this.consume(TokenType.RBRACE, "Expected '}'");
+        pages.push({ type: "EmbedLiteral", pairs, fields } as EmbedLiteral);
+      } else { this.advance(); }
+    }
+    this.consume(TokenType.RBRACE, "Expected '}'");
+    return { type: "PaginateStatement", pages, timeout, line };
   }
 
   private parseWith(message: ASTNode): ReplyWithButton {
