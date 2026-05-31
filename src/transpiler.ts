@@ -10,7 +10,7 @@ import {
   BinaryExpression, NullCoalesce, TernaryExpression, Identifier, Literal,
   ArrayLiteral, MapLiteral, EmbedLiteral, ParamDeclaration,
   AnimationDeclaration, SpriteDeclaration, KeyframeDeclaration, PlayStatement,
-  ScheduledTask, EmitStatement,
+  ScheduledTask, EmitStatement, TemplateReply, PaginateStatement,
 } from "./parser";
 import * as fs from "fs";
 import * as path from "path";
@@ -635,7 +635,14 @@ export class Transpiler {
       if (s.type === "CmdDeclaration") cmds.push(s as CmdDeclaration);
       else if (s.type === "EventDeclaration") events.push(s as EventDeclaration);
       else if (s.type === "ScheduledTask") scheduled.push(s as ScheduledTask);
-      else if (s.type === "UseStatement") usedNodes.push((s as UseStatement).name);
+      else if (s.type === "UseStatement") {
+        const useName = (s as UseStatement).name;
+        if (!usedNodes.includes(useName)) {
+          usedNodes.push(useName);
+          const sym = this.symbols.get(useName);
+          if (sym?.node) this.collectFromBody(sym.node.body, cmds, events, scheduled, usedNodes, assigns);
+        }
+      }
       else if (s.type === "AssignStatement") assigns.push(s as AssignStatement);
       else if (s.type === "NodeDeclaration") {
         // recurse into nested nodes
